@@ -1,5 +1,50 @@
 # koishi-plugin-bangumi-sub
 
-[![npm](https://img.shields.io/npm/v/koishi-plugin-bangumi-sub?style=flat-square)](https://www.npmjs.com/package/koishi-plugin-bangumi-sub)
+## 简介
 
-bangumi
+一个查询新番的 Koishi 插件，提供当季新番查询（以图片形式输出）、订阅及播出提醒功能。
+
+## 功能列表
+
+- **本季新番查询**: 以图片形式提供今日及本周的新番播出日历。
+- **番剧订阅**: 订阅您感兴趣的番剧，将在播出时自动收到推送提醒。
+- **订阅管理**: 提供查看、删除、清空及测试订阅的功能。
+
+## 依赖
+
+本插件依赖以下 Koishi 插件或服务：
+- `koishi-plugin-puppeteer`: 用于将番剧日历渲染为图片。
+- `database`: 用于存储用户订阅信息。
+
+请确保您的 Koishi 实例已正确安装并配置上述依赖。
+
+## 配置项
+
+| 配置项 | 类型 | 默认值 | 描述 |
+| --- | --- | --- | --- |
+| `detailsForToday` | `boolean` | `false` | “今日新番”指令是否番剧输出详细信息（以合并转发的形式）。 |
+| `subscriptionInterval`| `number`| `60` | 订阅推送的检查间隔时间（单位：分钟）。|
+| `debug` | `boolean` | `false` | 是否在控制台输出详细的调试日志。 |
+
+## 指令列表
+
+- `今日新番`: 查询当天播出的所有新番。
+- `本周新番`: 查询本周每天播出的新番。
+- `番剧订阅 <番剧ID>`: 订阅一个新番。番剧 ID 可通过查询指令获得。
+- `查看订阅`: 查看当前群组的所有订阅。
+- `删除订阅 <序号>`: 删除指定序号的订阅。
+- `清空订阅`: 清空当前群组的所有订阅。
+- `订阅推送测试`: 立即测试并推送当前群组的所有订阅提醒。
+
+## 鸣谢
+
+- 本插件的番剧数据来源于 [bgmlist.com](https://bgmlist.com) 和 [Bangumi 番组计划](https://bgm.tv)。
+
+## 免责声明
+
+- 本插件仅供学习和交流使用，插件作者不对数据的准确性、服务的稳定性作任何保证。
+- 因使用本插件而产生的任何直接或间接的法律责任或损失，插件作者不承担任何责任。
+
+## License
+
+[MIT](https://opensource.org/licenses/MIT) © 2025 [WhiteBr1ck](https://github.com/WhiteBr1ck)

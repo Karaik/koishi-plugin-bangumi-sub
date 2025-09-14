@@ -1,22 +1,38 @@
 {
   "name": "koishi-plugin-bangumi-sub",
-  "description": "bangumi",
-  "version": "0.0.1",
+  "description": "Bangumi新番订阅插件！支持查询当日或本周要放送的所有番剧以及到点推送功能。",
+  "version": "0.1.0",
   "main": "lib/index.js",
   "typings": "lib/index.d.ts",
   "files": [
-    "lib",
-    "dist"
+    "lib"
   ],
+  "author": "WhiteBr1ck (https://github.com/WhiteBr1ck)",
   "license": "MIT",
-  "scripts": {},
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/WhiteBr1ck/koishi-plugin-bangumi-sub.git"
+  },
+  "bugs": {
+    "url": "https://github.com/WhiteBr1ck/koishi-plugin-bangumi-sub/issues"
+  },
+  "homepage": "https://github.com/WhiteBr1ck/koishi-plugin-bangumi-sub#readme",
   "keywords": [
-    "chatbot",
     "koishi",
-    "plugin"
+    "plugin",
+    "bangumi",
+    "anime",
+    "subscribe",
+    "番剧",
+    "订阅"
   ],
-  "devDependencies": {},
   "peerDependencies": {
     "koishi": "^4.18.7"
+  },
+  "koishi": {
+    "services": [
+      "database",
+      "puppeteer"
+    ]
   }
 }
