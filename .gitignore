@@ -16,3 +16,6 @@ tsconfig.tsbuildinfo
 *.ntvs*
 *.njsproj
 *.sln
+
+# Claude Code documentation (local use only)
+CLAUDE.md

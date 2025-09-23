@@ -35,6 +35,7 @@ export interface Config {
   debug: boolean
   detailsForToday: boolean
   subscriptionInterval: number
+  enableWebpageScreenshot: boolean
 }
 
 // 插件配置 Schema
@@ -42,6 +43,7 @@ export const Config: Schema<Config> = Schema.object({
   debug: Schema.boolean().default(false).description('启用调试模式，将在控制台输出详细日志。'),
   detailsForToday: Schema.boolean().default(false).description('「今日新番」指令是否输出详细番剧信息（包含封面图等）。'),
   subscriptionInterval: Schema.number().default(60).description('订阅推送检查的间隔时间（分钟），默认为 60 分钟。'),
+  enableWebpageScreenshot: Schema.boolean().default(false).description('链接解析时是否附带网页截图，默认关闭。'),
 })
 
 // Bangumi 番剧条目类型（基于 bgmlist.com 的数据结构）
@@ -300,10 +302,138 @@ export function apply(ctx: Context, config: Config) {
   }
 
   /**
-   * 获取番剧详细信息（包含封面图）
-   * @param bangumiId 番剧ID
-   * @returns 番剧详细信息
+   * 截取网页特定区域
+   * @param url 网页URL
+   * @returns 截图Buffer
    */
+  async function captureWebpageRegions(url: string): Promise<Buffer | null> {
+    if (!ctx.puppeteer) {
+      logger.error('Puppeteer 服务未找到或未启用')
+      return null
+    }
+
+    let page = null
+    try {
+      if (config.debug) {
+        logger.info(`开始截取网页: ${url}`)
+      }
+
+      page = await ctx.puppeteer.page()
+      await page.setViewport({ width: 1200, height: 800, deviceScaleFactor: 1 })
+
+      // 访问页面
+      await page.goto(url, {
+        waitUntil: 'domcontentloaded',
+        timeout: 15000
+      })
+
+      // 等待页面加载
+      await new Promise(resolve => setTimeout(resolve, 3000))
+
+      // 查找目标元素
+      const headerHeroSelector = '.headerHero.clearit'
+      const mainWrapperSelector = '.mainWrapper.mainXL'
+
+      // 检查元素是否存在
+      const headerExists = await page.$(headerHeroSelector)
+      const mainExists = await page.$(mainWrapperSelector)
+
+      if (!headerExists && !mainExists) {
+        if (config.debug) {
+          logger.warn('未找到指定的页面元素')
+        }
+        return null
+      }
+
+      // 使用更精确的CSS来只显示目标元素
+      await page.addStyleTag({
+        content: `
+          /* 隐藏所有元素 */
+          body * { visibility: hidden !important; }
+
+          /* 只显示目标元素及其子元素 */
+          .headerHero.clearit,
+          .headerHero.clearit *,
+          .mainWrapper.mainXL,
+          .mainWrapper.mainXL * {
+            visibility: visible !important;
+          }
+
+          /* 确保容器可见 */
+          body { visibility: visible !important; }
+
+          /* 调整布局 */
+          .headerHero.clearit { margin-bottom: 20px !important; }
+        `
+      })
+
+      // 截图
+      const imageBuffer = await page.screenshot({
+        type: 'png',
+        fullPage: true
+      })
+
+      if (config.debug) {
+        logger.info('网页截图完成')
+      }
+
+      return imageBuffer as Buffer
+
+    } catch (error) {
+      logger.error('网页截图失败:', error)
+      return null
+    } finally {
+      if (page) {
+        try {
+          await page.close()
+        } catch (e) {
+          logger.warn('关闭网页截图页面时出错:', e)
+        }
+      }
+    }
+  }
+
+  /**
+   * 解析bangumi链接并返回番剧信息
+   * @param url bangumi链接
+   * @returns 番剧信息和可选的截图
+   */
+  async function parseBangumiLink(url: string): Promise<{ info: any, screenshot?: Buffer } | null> {
+    // 提取bangumi ID
+    const match = url.match(/(?:bangumi\.tv|bgm\.tv)\/subject\/(\d+)/)
+    if (!match) {
+      return null
+    }
+
+    const bangumiId = match[1]
+
+    try {
+      // 获取番剧详细信息
+      const details = await getBangumiDetails(bangumiId)
+      if (!details) {
+        return null
+      }
+
+      let screenshot: Buffer | undefined
+
+      // 如果启用了截图功能，则截取网页
+      if (config.enableWebpageScreenshot) {
+        const screenshotBuffer = await captureWebpageRegions(url)
+        if (screenshotBuffer) {
+          screenshot = screenshotBuffer
+        }
+      }
+
+      return {
+        info: details,
+        screenshot
+      }
+
+    } catch (error) {
+      logger.error(`解析bangumi链接失败 (${url}):`, error)
+      return null
+    }
+  }
   async function getBangumiDetails(bangumiId: string): Promise<{
     title: string
     title_cn: string
@@ -565,7 +695,7 @@ export function apply(ctx: Context, config: Config) {
               background: linear-gradient(to bottom, #e0f2fe, #f9fafb);
               margin: 0;
               padding: 20px;
-              min-height: 100vh;
+              min-height: auto;
               position: relative;
               overflow-x: hidden;
             }
@@ -938,7 +1068,9 @@ export function apply(ctx: Context, config: Config) {
       
       // 根据视图类型设置不同的视口大小
       const viewportWidth = isWeeklyView ? 1650 : 850
-      await page.setViewport({ width: viewportWidth, height: 1200, deviceScaleFactor: 2 })
+      // 根据内容数量动态计算高度，避免底部空白
+      const estimatedHeight = Math.max(600, Math.min(1200, 300 + items.length * 80))
+      await page.setViewport({ width: viewportWidth, height: estimatedHeight, deviceScaleFactor: 2 })
       
       // 设置页面内容，不等待网络请求完成
       await page.setContent(htmlContent, { 
@@ -1254,6 +1386,77 @@ export function apply(ctx: Context, config: Config) {
 
       return `测试完成，共成功推送 ${successCount} / ${subscriptions.length} 条订阅。`
     })
+
+  ctx.command('查看新番 <day:posint>', '查看指定星期几的新番（1-7，1为周一，7为周日）')
+    .action(async ({ session }, day) => {
+      if (!day || day < 1 || day > 7) {
+        return '请输入有效的数字（1-7），1为周一，7为周日。'
+      }
+
+      // 引用原消息并发送提示
+      const weekNames = ['', '周一', '周二', '周三', '周四', '周五', '周六', '周日']
+      const dayName = weekNames[day]
+      const statusMessage = await session.send(h('quote', { id: session.messageId }) + `正在查询${dayName}新番，请稍等...`)
+
+      try {
+        const allItems = await fetchCalendarData()
+        if (!allItems.length) {
+          // 数据获取失败，不撤回状态消息
+          return '获取番剧数据失败，请稍后再试。'
+        }
+
+        // 筛选指定星期几播出的番剧
+        const dayItems = allItems.filter(item => item.weekday === day)
+
+        if (config.debug) {
+          logger.info(`${dayName} (${day}), found ${dayItems.length} items`)
+          logger.info(`${dayName} item IDs: ${dayItems.map(item => item.id).join(', ')}`)
+        }
+
+        if (dayItems.length === 0) {
+          // 没有数据，不撤回状态消息
+          return `${dayName}似乎没有新番播出哦。`
+        }
+
+        // 按播出时间排序（将没有解析到时间格式的排在后面）
+        dayItems.sort((a, b) => {
+          const timeA = a.airTime?.time || '99:99'
+          const timeB = b.airTime?.time || '99:99'
+          return timeA.localeCompare(timeB)
+        })
+
+        const title = `${dayName}新番 - ${new Date().toLocaleDateString('zh-CN')}`
+
+        // 默认以图片表格形式输出
+        let result: any
+        if (config.detailsForToday) {
+          // 同时输出表格图片和详细信息
+          const tableImage = await renderHtmlTable(dayItems, title, false)
+          await session.send(tableImage)
+
+          // 发送详细信息
+          result = await sendDetailedBangumiInfo(dayItems, title)
+        } else {
+          // 只输出表格图片
+          result = await renderHtmlTable(dayItems, title, false)
+        }
+
+        // 成功完成所有操作，撤回状态消息
+        if (statusMessage) {
+          try {
+            await session.bot.deleteMessage(session.channelId, statusMessage[0])
+          } catch (e) {
+            if (config.debug) logger.warn('撤回状态消息失败:', e)
+          }
+        }
+
+        return result
+      } catch (error) {
+        logger.error(`处理查看新番请求时发生错误:`, error)
+        // 发生错误，不撤回状态消息，让用户看到查询过程
+        return '查询过程中发生错误，请稍后再试。'
+      }
+    })
   /**
    * 发送推送通知
    * @param sub 订阅对象
@@ -1268,13 +1471,13 @@ export function apply(ctx: Context, config: Config) {
         `${sub.bangumiTitleCn || sub.bangumiTitle}\n` +
         `播出时间：${weekNames[sub.weekday]} ${sub.airTime}\n` +
         `番剧链接：https://bgm.tv/subject/${sub.bangumiId}`
-      
+
       // 发送到对应群组
       const bots = ctx.bots.filter(bot => bot.status === 1)
       if (bots.length > 0) {
         const bot = bots[0] // 使用第一个在线的机器人
         await bot.sendMessage(sub.channelId, message)
-        
+
         if (config.debug) {
           logger.info(`[订阅推送] 已推送: ${sub.bangumiTitleCn || sub.bangumiTitle} 到群组 ${sub.channelId}`)
         }
@@ -1346,5 +1549,98 @@ export function apply(ctx: Context, config: Config) {
   ctx.on('dispose', () => {
     clearInterval(subscriptionInterval)
     logger.info('[订阅推送] 定时器已清理')
+  })
+
+  // 监听消息，检测bangumi链接
+  ctx.middleware(async (session, next) => {
+    const message = session.content.trim()
+
+    // 检测是否为bangumi链接
+    const bangumiUrlRegex = /https?:\/\/(?:bangumi\.tv|bgm\.tv)\/subject\/\d+/
+    const match = message.match(bangumiUrlRegex)
+
+    if (match) {
+      const url = match[0]
+
+      try {
+        // 发送处理提示
+        const statusMessage = await session.send(h('quote', { id: session.messageId }) + '正在解析bangumi链接...')
+
+        const result = await parseBangumiLink(url)
+
+        if (result) {
+          const { info, screenshot } = result
+
+          // 构建番剧信息
+          const detailLines: string[] = []
+          if (info.title) detailLines.push(`标题：${info.title}`)
+          if (info.title_cn && info.title_cn !== info.title) {
+            detailLines.push(`中文标题：${info.title_cn}`)
+          }
+          if (info.airDate) detailLines.push(`开播日期：${info.airDate}`)
+          if (info.rating) detailLines.push(`⭐ 评分：${info.rating.toFixed(1)}`)
+          if (info.rank) detailLines.push(`📈 排名：${info.rank}`)
+          if (info.summary) {
+            const shortSummary = info.summary.length > 200
+              ? info.summary.substring(0, 200) + '...'
+              : info.summary
+            detailLines.push(`📝 简介：${shortSummary}`)
+          }
+
+          // 构建回复内容
+          const content: h[] = []
+
+          // 添加封面图（如果有）
+          if (info.coverUrl) {
+            content.push(h.image(info.coverUrl))
+          }
+
+          // 添加文本信息
+          content.push(h.text(detailLines.join('\n')))
+
+          // 成功解析，撤回状态消息
+          if (statusMessage) {
+            try {
+              await session.bot.deleteMessage(session.channelId, statusMessage[0])
+            } catch (e) {
+              if (config.debug) logger.warn('撤回状态消息失败:', e)
+            }
+          }
+
+          // 先发送番剧信息
+          await session.send(content)
+
+          // 如果有截图，单独发送截图
+          if (screenshot) {
+            await session.send([
+              h.text('📸 网页截图：'),
+              h.image(screenshot, 'image/png')
+            ])
+          }
+
+          return // 阻止消息继续传播
+
+        } else {
+          // 解析失败，撤回状态消息并提示
+          if (statusMessage) {
+            try {
+              await session.bot.deleteMessage(session.channelId, statusMessage[0])
+            } catch (e) {
+              if (config.debug) logger.warn('撤回状态消息失败:', e)
+            }
+          }
+          await session.send('解析bangumi链接失败，请检查链接是否正确。')
+          return
+        }
+
+      } catch (error) {
+        logger.error('处理bangumi链接时发生错误:', error)
+        await session.send('处理链接时发生错误，请稍后再试。')
+        return
+      }
+    }
+
+    // 如果不是bangumi链接，继续正常处理
+    return next()
   })
 }

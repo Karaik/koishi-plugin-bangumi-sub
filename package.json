@@ -1,7 +1,7 @@
 {
   "name": "koishi-plugin-bangumi-sub",
-  "description": "Bangumi新番订阅插件！支持查询当日或本周要放送的所有番剧以及到点推送功能。",
-  "version": "0.1.0",
+  "description": "Bangumi新番订阅插件！支持查询当日或本周要放送的所有番剧以及到点推送功能。现支持Bangumi链接解析。",
+  "version": "0.2.0",
   "main": "lib/index.js",
   "typings": "lib/index.d.ts",
   "files": [
